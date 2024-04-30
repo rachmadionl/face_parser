@@ -1,8 +1,8 @@
 #!/usr/bin/python
 # -*- encoding: utf-8 -*-
 
-from logger import setup_logger
-from model import BiSeNet
+from .logger import setup_logger
+from .model import BiSeNet
 
 import torch
 
@@ -13,8 +13,31 @@ from PIL import Image
 import torchvision.transforms as transforms
 import cv2
 
+# CLASS INDEX ARE:
+# 0: Background
+# 1: Skin
+# 2: Right eyebrow
+# 3: Left eyebrow
+# 4: Right Eye
+# 5: Left Eye
+# 6: ???
+# 7: Right Ear
+# 8: Left Ear
+# 9: ???
+# 10: Nose
+# 11: Inner Mouth
+# 12: Upper Lip
+# 13: Lower Lip
+# 14: Neck
+# 15: ???
+# 16: Shirt
+# 17: Hair
+# 18: ???
+# 19: ???
+
 def vis_parsing_maps(im, parsing_anno, stride, save_im=False, save_path='vis_results/parsing_map_on_im.jpg'):
     # Colors for all 20 parts
+    # Nose, lower lip, neck, ???
     part_colors = [[255, 0, 0], [255, 85, 0], [255, 170, 0],
                    [255, 0, 85], [255, 0, 170],
                    [0, 255, 0], [85, 255, 0], [170, 255, 0],
@@ -43,8 +66,8 @@ def vis_parsing_maps(im, parsing_anno, stride, save_im=False, save_path='vis_res
 
     # Save result or not
     if save_im:
-        cv2.imwrite(save_path[:-4] +'.png', vis_parsing_anno)
-        cv2.imwrite(save_path, vis_im, [int(cv2.IMWRITE_JPEG_QUALITY), 100])
+        cv2.imwrite(save_path[:-4] +'.png', vis_parsing_anno * 255)
+        # cv2.imwrite(save_path, vis_im, [int(cv2.IMWRITE_JPEG_QUALITY), 100])
 
     # return vis_im
 
@@ -56,16 +79,26 @@ def evaluate(respth='./res/test_res', dspth='./data', cp='model_final_diss.pth')
     n_classes = 19
     net = BiSeNet(n_classes=n_classes)
     net.cuda()
-    save_pth = osp.join('res/cp', cp)
-    net.load_state_dict(torch.load(save_pth))
+    # save_pth = osp.join('res/cp', cp)
+    net.load_state_dict(torch.load(cp))
     net.eval()
 
     to_tensor = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225)),
     ])
+    background = np.zeros((512, 512))
+    unknown_one = np.zeros((512, 512)) + 15
+    shirt = np.zeros((512, 512)) + 16
+    hair = np.zeros((512, 512)) + 17
+    unknown_two = np.zeros((512, 512)) + 18
+    unknown_three = np.zeros((512, 512)) + 19
+
+    inner_mouth = np.zeros((512, 512)) + 11
+    upper_lip = np.zeros((512, 512)) + 12
+    lower_lip = np.zeros((512, 512)) + 13
     with torch.no_grad():
-        for image_path in os.listdir(dspth):
+        for image_path in sorted(os.listdir(dspth)):
             img = Image.open(osp.join(dspth, image_path))
             image = img.resize((512, 512), Image.BILINEAR)
             img = to_tensor(image)
@@ -73,10 +106,12 @@ def evaluate(respth='./res/test_res', dspth='./data', cp='model_final_diss.pth')
             img = img.cuda()
             out = net(img)[0]
             parsing = out.squeeze(0).cpu().numpy().argmax(0)
-            # print(parsing)
-            print(np.unique(parsing))
+            # print(f'{i}: {np.unique(parsing)}')
+            parsing_face_neck = ~((parsing == background) + (parsing == shirt) + (parsing == unknown_one) + (parsing == unknown_two) + (parsing == unknown_three))
+            parsing_mouth = ((parsing == upper_lip) + (parsing == lower_lip) + (parsing == inner_mouth))
 
-            vis_parsing_maps(image, parsing, stride=1, save_im=True, save_path=osp.join(respth, image_path))
+            vis_parsing_maps(image, parsing_face_neck, stride=1, save_im=True, save_path=osp.join(respth, f'{image_path.split(".")[0]}_neckhead_{image_path.split(".")[1]}'))
+            vis_parsing_maps(image, parsing_mouth, stride=1, save_im=True, save_path=osp.join(respth, f'{image_path.split(".")[0]}_mouth_{image_path.split(".")[1]}'))
 
 
 
